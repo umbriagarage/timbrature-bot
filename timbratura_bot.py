@@ -5,9 +5,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import time
-import math
 import json
 import os
+from math import radians, sin, cos, atan2, sqrt
 
 # =============== CONFIGURAZIONE ===============
 TOKEN = "8072993225:AAEbp_P3ew50N0ZkenHqW63EDhCg5DennQk"
@@ -17,7 +17,7 @@ OWNER_EMAIL = "umbriagarage@gmail.com"
 TIMEZONE = "Europe/Rome"
 
 # =============== AUTORIZZAZIONI ===============
-ALLOWED_USER_IDS = {80821293, 1829982561}
+ALLOWED_USER_IDS = {80821293, 1829982561, 5687338860}
 
 # =============== GEOFENCE ===============
 DEFAULT_OFFICE = {"lat": 43.463360, "lon": 12.238560}  # Via Biturgense 74
@@ -89,7 +89,6 @@ def now_local():
 
 def haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000.0
-    from math import radians, sin, cos, atan2, sqrt
     phi1 = radians(lat1); phi2 = radians(lat2)
     dphi = radians(lat2 - lat1)
     dlmb = radians(lon2 - lon1)
@@ -114,16 +113,16 @@ def location_keyboard(for_action):
     kb.add(types.KeyboardButton(text=f"📡 Invia posizione per {for_action}", request_location=True))
     return kb
 
+# ---- Comandi ----
 @bot.message_handler(commands=["start", "help"])
 def start_cmd(msg):
     if not check_auth(msg):
         bot.reply_to(msg, "❌ Non sei autorizzato a usare questo bot.")
         return
-    lat, lon = load_office_coords()
     bot.reply_to(
         msg,
         "👋 Benvenuto nel bot timbrature.\n"
-        "Scegli un’azione e invia la posizione.\n"
+        "Seleziona un’azione e invia la posizione.\n"
         f"📍 Sede valida entro {GEOFENCE_METERS} m dalla posizione salvata.",
         reply_markup=main_keyboard(),
     )
@@ -151,13 +150,13 @@ def set_sede_cmd(msg):
         reply_markup=kb,
     )
 
-# ======= AZIONE: solo ENTRATA e USCITA =======
-@bot.message_handler(func=lambda m: m.text in ["🕗 ENTRATA", "🏁 USCITA"])
+# ---- Azioni: riconosci ENTRATA/USCITA anche senza /start ----
+@bot.message_handler(func=lambda m: (m.text or "").strip() in ["🕗 ENTRATA", "🏁 USCITA"])
 def choose_action(msg):
     if not check_auth(msg):
         bot.reply_to(msg, "❌ Non sei autorizzato a usare questo bot.")
         return
-    azione = msg.text.replace("🕗 ", "").replace("🏁 ", "")
+    azione = msg.text.replace("🕗 ", "").replace("🏁 ", "").strip()
     pending_action[msg.from_user.id] = {"azione": azione, "ts": time.time()}
     bot.send_message(
         msg.chat.id,
@@ -165,7 +164,7 @@ def choose_action(msg):
         reply_markup=location_keyboard(azione),
     )
 
-# ======= POSIZIONE: gestisce sia /setsede che l'azione =======
+# ---- Posizione: gestisce /setsede e l'azione; default ENTRATA se manca ----
 @bot.message_handler(content_types=["location"])
 def handle_location(msg):
     if not check_auth(msg):
@@ -186,8 +185,9 @@ def handle_location(msg):
     # Azione con geofence
     info = pending_action.get(msg.from_user.id)
     if not info:
-        bot.reply_to(msg, "ℹ️ Prima scegli un’azione (ENTRATA/USCITA).", reply_markup=main_keyboard())
-        return
+        # fallback: posizione senza aver scelto azione = ENTRATA
+        info = {"azione": "ENTRATA", "ts": time.time()}
+        pending_action[msg.from_user.id] = info
 
     if time.time() - info.get("ts", 0) > 180:
         pending_action.pop(msg.from_user.id, None)
@@ -219,6 +219,17 @@ def handle_location(msg):
         bot.reply_to(msg, f"⚠️ Errore nel salvataggio: <code>{e}</code>")
     finally:
         pending_action.pop(msg.from_user.id, None)
+
+# ---- Fallback: qualsiasi altro testo mostra il menu (utile senza /start) ----
+@bot.message_handler(func=lambda m: True, content_types=['text'])
+def fallback_text(msg):
+    if not check_auth(msg):
+        return
+    bot.reply_to(
+        msg,
+        "Seleziona un’azione e invia la posizione.",
+        reply_markup=main_keyboard()
+    )
 
 # =============== AVVIO ===============
 if __name__ == "__main__":
