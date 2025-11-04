@@ -234,10 +234,5 @@ def fallback_text(msg):
 # =============== AVVIO ===============
 if __name__ == "__main__":
     print("🚀 Bot timbrature attivo. Premi CTRL+C per uscire.")
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
-        except Exception as e:
-            print(f"Polling error: {e}. Retry tra 5s...")
-            time.sleep(5)
-# redeploy
+    # Un solo polling, niente while True (evita doppie richieste getUpdates)
+    bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
